@@ -24,8 +24,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-UPLOAD_DIR = Path("uploads")
-OUTPUT_DIR = Path("outputs")
+UPLOAD_DIR = Path("/tmp/uploads")
+OUTPUT_DIR = Path("/tmp/outputs")
 UPLOAD_DIR.mkdir(exist_ok=True)
 OUTPUT_DIR.mkdir(exist_ok=True)
 
@@ -110,7 +110,7 @@ async def run_processing(job_id, input_path, min_silence_ms, remove_bg, padding_
         jobs[job_id]["step"] = step
 
     try:
-        output_path = OUTPUT_DIR / f"{job_id}_edited.mp4"
+        output_path = Path("/tmp") / f"{job_id}_edited.mp4"
         processor = VideoProcessor(
             input_path=input_path,
             output_path=str(output_path),
