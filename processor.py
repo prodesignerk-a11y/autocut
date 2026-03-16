@@ -5,6 +5,7 @@ import shutil
 from typing import List, Tuple, Callable, Optional
 import time
 
+
 class VideoProcessor:
     def __init__(
         self,
@@ -35,12 +36,12 @@ class VideoProcessor:
         self.cb(15, "Analisando duração do vídeo...")
         duration = self._get_duration(self.input_path)
 
-        self.cb(25, "Detectando silêncios e pausas...")
-        segments = self._detect_speech_segments(audio_path, duration)
+        self.cb(20, "Transcrevendo com Whisper (pode demorar)...")
+        segments = self._whisper_segments(audio_path, duration)
 
         self.cb(60, "Refinando cortes...")
         segments = self._apply_padding(segments, duration)
-        segments = self._filter_short(segments, min_duration=0.3)
+        segments = self._filter_short(segments, min_duration=0.2)
 
         if not segments:
             raise ValueError("Nenhum segmento de fala detectado.")
@@ -100,12 +101,36 @@ class VideoProcessor:
         )
         return float(result.stdout.strip())
 
-    def _detect_speech_segments(self, audio_path: str, duration: float) -> List[Tuple[float, float]]:
+    def _whisper_segments(self, audio_path: str, duration: float) -> List[Tuple[float, float]]:
         try:
-            return self._pydub_silence_detection(audio_path, duration)
+            import whisper
+            model = whisper.load_model("tiny")
+            result = model.transcribe(
+                audio_path,
+                word_timestamps=True,
+                verbose=False,
+            )
+
+            # Collect word-level segments
+            word_segs = []
+            for seg in result.get("segments", []):
+                for word in seg.get("words", []):
+                    word_segs.append((float(word["start"]), float(word["end"])))
+
+            if not word_segs:
+                # Fall back to segment-level if no words
+                for seg in result.get("segments", []):
+                    word_segs.append((float(seg["start"]), float(seg["end"])))
+
+            if not word_segs:
+                raise ValueError("Whisper não detectou fala")
+
+            # Merge words close together
+            return self._merge_segments(word_segs, gap_threshold=self.min_silence_ms / 1000.0)
+
         except Exception as e:
-            print(f"[pydub] Error: {e}")
-            return [(0.0, duration)]
+            print(f"[Whisper] Error: {e}, falling back to pydub")
+            return self._pydub_silence_detection(audio_path, duration)
 
     def _pydub_silence_detection(self, audio_path: str, duration: float) -> List[Tuple[float, float]]:
         from pydub import AudioSegment, silence
@@ -145,11 +170,10 @@ class VideoProcessor:
             padded.append((s, e))
         return self._merge_segments(padded, gap_threshold=0.01)
 
-    def _filter_short(self, segments, min_duration=0.3):
+    def _filter_short(self, segments, min_duration=0.2):
         return [(s, e) for s, e in segments if e - s >= min_duration]
 
     def _render_video(self, segments, duration):
-        # Cut each segment individually then concatenate
         clip_paths = []
         total = len(segments)
 
@@ -172,7 +196,6 @@ class VideoProcessor:
             self._run_cmd(cmd)
             clip_paths.append(clip_path)
 
-        # Write concat list
         list_file = os.path.join(self.temp_dir, "list.txt")
         with open(list_file, "w") as f:
             for cp in clip_paths:
