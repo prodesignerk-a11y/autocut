@@ -256,7 +256,20 @@ class VideoProcessor:
             self._run_cmd(cmd)
             clip_paths.append(clip_path)
 
-        with open(segments_file, "w")
+        with open(segments_file, "w") as f:
+            for clip_path in clip_paths:
+                f.write(f"file '{clip_path}'\n")
+
+        self.cb(80, f"Concatenando {len(clip_paths)} segmentos...")
+        cmd = [
+            "ffmpeg", "-y",
+            "-f", "concat",
+            "-safe", "0",
+            "-i", segments_file,
+            "-c", "copy",
+            self.output_path,
+        ]
+        self._run_cmd(cmd)
 
     # ─── Helpers ─────────────────────────────────────────────────────────
 
