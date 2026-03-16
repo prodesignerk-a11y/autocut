@@ -1,11 +1,3 @@
-import os
-import subprocess
-import tempfile
-from pathlib import Path
-from typing import List, Tuple, Callable, Optional
-import time
-
-
 class VideoProcessor:
     def __init__(
         self,
@@ -30,13 +22,13 @@ class VideoProcessor:
         self.cb(3, "Reduzindo resolução do vídeo...")
         self.input_path = self._downscale_video()
 
-        self.cb(5, "Extraindo áudio do vídeo...")
+        self.cb(10, "Extraindo áudio do vídeo...")
         audio_path = self._extract_audio()
 
-        self.cb(10, "Analisando duração do vídeo...")
+        self.cb(15, "Analisando duração do vídeo...")
         duration = self._get_duration(self.input_path)
 
-        self.cb(20, "Detectando silêncios e pausas...")
+        self.cb(25, "Detectando silêncios e pausas...")
         segments = self._detect_speech_segments(audio_path, duration)
 
         self.cb(60, "Refinando cortes...")
@@ -44,9 +36,9 @@ class VideoProcessor:
         segments = self._filter_short(segments, min_duration=0.3)
 
         if not segments:
-            raise ValueError("Nenhum segmento de fala detectado. Verifique o áudio.")
+            raise ValueError("Nenhum segmento de fala detectado.")
 
-        self.cb(70, "Renderizando vídeo final...")
+        self.cb(70, "Cortando segmentos...")
         self._render_video(segments, duration)
 
         elapsed = time.time() - start
@@ -71,10 +63,12 @@ class VideoProcessor:
         cmd = [
             "ffmpeg", "-y",
             "-i", self.input_path,
-            "-vf", "scale=1080:-2",
+            "-vf", "scale=720:-2",
             "-c:v", "libx264",
             "-preset", "ultrafast",
+            "-crf", "28",
             "-c:a", "aac",
+            "-b:a", "128k",
             scaled_path
         ]
         self._run_cmd(cmd)
@@ -124,7 +118,7 @@ class VideoProcessor:
             segments.append((start_ms / 1000.0, end_ms / 1000.0))
         return segments
 
-    def _merge_segments(self, segments: List[Tuple[float, float]], gap_threshold: float) -> List[Tuple[float, float]]:
+    def _merge_segments(self, segments, gap_threshold):
         if not segments:
             return []
         merged = [list(segments[0])]
@@ -135,7 +129,7 @@ class VideoProcessor:
                 merged.append([start, end])
         return [(s, e) for s, e in merged]
 
-    def _apply_padding(self, segments: List[Tuple[float, float]], duration: float) -> List[Tuple[float, float]]:
+    def _apply_padding(self, segments, duration):
         pad = self.padding_ms / 1000.0
         padded = []
         for start, end in segments:
@@ -144,43 +138,56 @@ class VideoProcessor:
             padded.append((s, e))
         return self._merge_segments(padded, gap_threshold=0.01)
 
-    def _filter_short(self, segments: List[Tuple[float, float]], min_duration: float = 0.3) -> List[Tuple[float, float]]:
+    def _filter_short(self, segments, min_duration=0.3):
         return [(s, e) for s, e in segments if e - s >= min_duration]
 
-    def _render_video(self, segments: List[Tuple[float, float]], duration: float):
-        filter_v = []
-        filter_a = []
+    def _render_video(self, segments, duration):
+        # Cut each segment individually then concatenate
+        clip_paths = []
+        total = len(segments)
 
         for i, (start, end) in enumerate(segments):
-            filter_v.append(f"[0:v]trim={start:.3f}:{end:.3f},setpts=PTS-STARTPTS[v{i}]")
-            filter_a.append(f"[0:a]atrim={start:.3f}:{end:.3f},asetpts=PTS-STARTPTS[a{i}]")
+            clip_path = os.path.join(self.temp_dir, f"clip_{i:04d}.mp4")
+            pct = 70 + int((i / total) * 20)
+            self.cb(pct, f"Cortando segmento {i+1}/{total}...")
+            cmd = [
+                "ffmpeg", "-y",
+                "-ss", f"{start:.3f}",
+                "-to", f"{end:.3f}",
+                "-i", self.input_path,
+                "-c:v", "libx264",
+                "-preset", "ultrafast",
+                "-crf", "28",
+                "-c:a", "aac",
+                "-b:a", "128k",
+                clip_path
+            ]
+            self._run_cmd(cmd)
+            clip_paths.append(clip_path)
 
-        n = len(segments)
-        concat_in = "".join(f"[v{i}][a{i}]" for i in range(n))
-        filter_complex = ";".join(filter_v + filter_a)
-        filter_complex += f";{concat_in}concat=n={n}:v=1:a=1[outv][outa]"
+        # Write concat list
+        list_file = os.path.join(self.temp_dir, "list.txt")
+        with open(list_file, "w") as f:
+            for cp in clip_paths:
+                f.write(f"file '{cp}'\n")
 
-        self.cb(80, f"Concatenando {n} segmentos...")
+        self.cb(92, "Juntando segmentos...")
         cmd = [
             "ffmpeg", "-y",
-            "-i", self.input_path,
-            "-filter_complex", filter_complex,
-            "-map", "[outv]",
-            "-map", "[outa]",
-            "-c:v", "libx264",
-            "-preset", "ultrafast",
-            "-c:a", "aac",
-            self.output_path,
+            "-f", "concat",
+            "-safe", "0",
+            "-i", list_file,
+            "-c", "copy",
+            self.output_path
         ]
         self._run_cmd(cmd)
 
     def _run_cmd(self, cmd: list):
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
-            raise RuntimeError(f"FFmpeg error:\n{result.stderr[-1000:]}")
+            raise RuntimeError(f"FFmpeg error:\n{result.stderr[-1500:]}")
 
     def _cleanup(self):
-        import shutil
         try:
             shutil.rmtree(self.temp_dir)
         except Exception:
