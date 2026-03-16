@@ -1,27 +1,12 @@
-"""
-AutoCut Video Processor
-Detects silences, pauses, and background noise — then cuts them out.
-"""
-
 import os
-import json
 import subprocess
 import tempfile
 from pathlib import Path
 from typing import List, Tuple, Callable, Optional
-import math
+import time
 
 
 class VideoProcessor:
-    """
-    Full pipeline:
-    1. Extract audio (FFmpeg)
-    2. Detect speech segments (Silero VAD or pydub fallback)
-    3. Optionally transcribe (Whisper) for context-aware cuts
-    4. Merge segments with padding
-    5. Render final video (FFmpeg concat)
-    """
-
     def __init__(
         self,
         input_path: str,
@@ -37,36 +22,24 @@ class VideoProcessor:
         self.remove_bg_noise = remove_bg_noise
         self.padding_ms = padding_ms
         self.cb = progress_callback or (lambda p, s: None)
-
         self.temp_dir = tempfile.mkdtemp(prefix="autocut_")
 
     def run(self) -> dict:
-        """Execute full processing pipeline. Returns stats dict."""
         import time
         start = time.time()
 
-        # Step 1: Extract audio
-    self.cb(3, "Reduzindo resolução do vídeo...")
-self.input_path = self._downscale_video()
+        self.cb(3, "Reduzindo resolução do vídeo...")
+        self.input_path = self._downscale_video()
+
         self.cb(5, "Extraindo áudio do vídeo...")
         audio_path = self._extract_audio()
 
-        # Step 2: Get video duration
         self.cb(10, "Analisando duração do vídeo...")
         duration = self._get_duration(self.input_path)
 
-        # Step 3: Detect speech segments
         self.cb(20, "Detectando silêncios e pausas...")
         segments = self._detect_speech_segments(audio_path, duration)
 
-        # Step 4: Try to improve with Whisper (optional, skip if unavailable)
-        self.cb(40, "Transcrevendo áudio com IA...")
-        try:
-            segments = self._refine_with_whisper(audio_path, segments)
-        except Exception as e:
-            print(f"[Whisper] Skipped: {e}")
-
-        # Step 5: Filter very short segments and apply padding
         self.cb(60, "Refinando cortes...")
         segments = self._apply_padding(segments, duration)
         segments = self._filter_short(segments, min_duration=0.3)
@@ -74,7 +47,6 @@ self.input_path = self._downscale_video()
         if not segments:
             raise ValueError("Nenhum segmento de fala detectado. Verifique o áudio.")
 
-        # Step 6: Render output video
         self.cb(70, "Renderizando vídeo final...")
         self._render_video(segments, duration)
 
@@ -95,24 +67,19 @@ self.input_path = self._downscale_video()
         self._cleanup()
         return stats
 
-   # ── Downscale ────────────────────────────────────────────────────
-
-        def _downscale_video(self) -> str:
-            """Reduz resolução para 1080p para economizar memória."""
-            scaled_path = os.path.join(self.temp_dir, "scaled.mp4")
-            cmd = [
-                "ffmpeg", "-y",
-                "-i", self.input_path,
-                "-vf", "scale=1080:-2",
-                "-c:v", "libx264",
-                "-preset", "ultrafast",
-                "-c:a", "aac",
-                scaled_path
-            ]
-            self._run_cmd(cmd)
-            return scaled_path
-            
-    # ─── Audio Extraction ────────────────────────────────────────────────
+    def _downscale_video(self) -> str:
+        scaled_path = os.path.join(self.temp_dir, "scaled.mp4")
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", self.input_path,
+            "-vf", "scale=1080:-2",
+            "-c:v", "libx264",
+            "-preset", "ultrafast",
+            "-c:a", "aac",
+            scaled_path
+        ]
+        self._run_cmd(cmd)
+        return scaled_path
 
     def _extract_audio(self) -> str:
         audio_path = os.path.join(self.temp_dir, "audio.wav")
@@ -125,8 +92,6 @@ self.input_path = self._downscale_video()
         self._run_cmd(cmd)
         return audio_path
 
-    # ─── Duration ────────────────────────────────────────────────────────
-
     def _get_duration(self, path: str) -> float:
         result = subprocess.run(
             ["ffprobe", "-v", "error", "-show_entries", "format=duration",
@@ -135,49 +100,19 @@ self.input_path = self._downscale_video()
         )
         return float(result.stdout.strip())
 
-    # ─── Speech Detection ────────────────────────────────────────────────
-
     def _detect_speech_segments(self, audio_path: str, duration: float) -> List[Tuple[float, float]]:
-        """Try Silero VAD first, fall back to pydub energy detection."""
         try:
-            return self._silero_vad(audio_path, duration)
-        except Exception as e:
-            print(f"[Silero] Unavailable ({e}), using pydub fallback...")
             return self._pydub_silence_detection(audio_path, duration)
-
-    def _silero_vad(self, audio_path: str, duration: float) -> List[Tuple[float, float]]:
-        import torch
-        import torchaudio
-
-        model, utils = torch.hub.load(
-            repo_or_dir='snakers4/silero-vad',
-            model='silero_vad',
-            force_reload=False,
-            trust_repo=True,
-        )
-        (get_speech_ts, _, read_audio, *_) = utils
-
-        wav = read_audio(audio_path, sampling_rate=16000)
-        speech_timestamps = get_speech_ts(
-            wav, model,
-            sampling_rate=16000,
-            min_silence_duration_ms=self.min_silence_ms,
-            min_speech_duration_ms=100,
-            return_seconds=True,
-        )
-
-        segments = []
-        for ts in speech_timestamps:
-            segments.append((float(ts['start']), float(ts['end'])))
-        return segments
+        except Exception as e:
+            print(f"[pydub] Error: {e}")
+            return [(0.0, duration)]
 
     def _pydub_silence_detection(self, audio_path: str, duration: float) -> List[Tuple[float, float]]:
-        """Fallback: pydub detect_nonsilent."""
         from pydub import AudioSegment, silence
 
         audio = AudioSegment.from_wav(audio_path)
         min_silence_len = self.min_silence_ms
-        silence_thresh = audio.dBFS - 16  # 16 dB below mean = silence
+        silence_thresh = audio.dBFS - 16
 
         nonsilent = silence.detect_nonsilent(
             audio,
@@ -191,43 +126,9 @@ self.input_path = self._downscale_video()
             segments.append((start_ms / 1000.0, end_ms / 1000.0))
         return segments
 
-    # ─── Whisper Refinement ──────────────────────────────────────────────
-
-    def _refine_with_whisper(self, audio_path: str, segments: List[Tuple[float, float]]) -> List[Tuple[float, float]]:
-        """Use Whisper to get word-level timestamps for cleaner cuts."""
-        import whisper
-
-        self.cb(45, "Transcrevendo com Whisper (pode demorar)...")
-        model = whisper.load_model("base")
-        result = model.transcribe(
-            audio_path,
-            word_timestamps=True,
-            language=None,  # auto-detect
-            verbose=False,
-        )
-
-        # Collect all word segments
-        word_segments = []
-        for seg in result.get("segments", []):
-            for word in seg.get("words", []):
-                word_segments.append((word["start"], word["end"]))
-
-        if not word_segments:
-            return segments
-
-        # Merge words that are close together
-        merged = self._merge_segments(word_segments, gap_threshold=self.min_silence_ms / 1000.0)
-        return merged
-
-    # ─── Segment Utilities ───────────────────────────────────────────────
-
-    def _merge_segments(
-        self, segments: List[Tuple[float, float]], gap_threshold: float
-    ) -> List[Tuple[float, float]]:
-        """Merge segments separated by less than gap_threshold seconds."""
+    def _merge_segments(self, segments: List[Tuple[float, float]], gap_threshold: float) -> List[Tuple[float, float]]:
         if not segments:
             return []
-
         merged = [list(segments[0])]
         for start, end in segments[1:]:
             if start - merged[-1][1] <= gap_threshold:
@@ -236,49 +137,52 @@ self.input_path = self._downscale_video()
                 merged.append([start, end])
         return [(s, e) for s, e in merged]
 
-    def _apply_padding(
-        self, segments: List[Tuple[float, float]], duration: float
-    ) -> List[Tuple[float, float]]:
-        """Add small padding around each segment for natural feel."""
+    def _apply_padding(self, segments: List[Tuple[float, float]], duration: float) -> List[Tuple[float, float]]:
         pad = self.padding_ms / 1000.0
         padded = []
         for start, end in segments:
             s = max(0.0, start - pad)
             e = min(duration, end + pad)
             padded.append((s, e))
-        # Re-merge after padding
         return self._merge_segments(padded, gap_threshold=0.01)
 
-    def _filter_short(
-        self, segments: List[Tuple[float, float]], min_duration: float = 0.3
-    ) -> List[Tuple[float, float]]:
+    def _filter_short(self, segments: List[Tuple[float, float]], min_duration: float = 0.3) -> List[Tuple[float, float]]:
         return [(s, e) for s, e in segments if e - s >= min_duration]
 
-    # ─── Video Rendering ─────────────────────────────────────────────────
-
     def _render_video(self, segments: List[Tuple[float, float]], duration: float):
-        if not segments:
-            raise ValueError("Nenhum segmento encontrado")
+        segments_file = os.path.join(self.temp_dir, "segments.txt")
+        clip_paths = []
 
-        # Build select filter
-        select_parts = []
-        for start, end in segments:
-            select_parts.append(f"between(t,{start:.4f},{end:.4f})")
-        
-        select_expr = "+".join(select_parts)
-        
+        for i, (start, end) in enumerate(segments):
+            clip_path = os.path.join(self.temp_dir, f"clip_{i}.mp4")
+            cmd = [
+                "ffmpeg", "-y",
+                "-i", self.input_path,
+                "-ss", str(start),
+                "-to", str(end),
+                "-c:v", "libx264",
+                "-preset", "ultrafast",
+                "-c:a", "aac",
+                "-avoid_negative_ts", "make_zero",
+                clip_path
+            ]
+            self._run_cmd(cmd)
+            clip_paths.append(clip_path)
+
+        with open(segments_file, "w") as f:
+            for clip_path in clip_paths:
+                f.write(f"file '{clip_path}'\n")
+
+        self.cb(80, f"Concatenando {len(clip_paths)} segmentos...")
         cmd = [
             "ffmpeg", "-y",
-            "-i", self.input_path,
-            "-vf", f"select='{select_expr}',setpts=N/FRAME_RATE/TB",
-            "-af", f"aselect='{select_expr}',asetpts=N/SR/TB",
-            "-c:v", "libx264",
-            "-c:a", "aac",
+            "-f", "concat",
+            "-safe", "0",
+            "-i", segments_file,
+            "-c", "copy",
             self.output_path,
         ]
-        self.cb(80, "Renderizando vídeo final...")
         self._run_cmd(cmd)
-    # ─── Helpers ─────────────────────────────────────────────────────────
 
     def _run_cmd(self, cmd: list):
         result = subprocess.run(cmd, capture_output=True, text=True)
