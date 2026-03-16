@@ -177,6 +177,11 @@ async def delete_job(job_id: str):
 
     return {"deleted": job_id}
 
+from fastapi.responses import HTMLResponse
 
+@app.get("/", response_class=HTMLResponse)
+async def frontend():
+    with open("index.html", "r") as f:
+        return f.read()
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
