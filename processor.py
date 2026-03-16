@@ -25,7 +25,6 @@ class VideoProcessor:
         self.temp_dir = tempfile.mkdtemp(prefix="autocut_")
 
     def run(self) -> dict:
-        import time
         start = time.time()
 
         self.cb(3, "Reduzindo resolução do vídeo...")
@@ -111,12 +110,11 @@ class VideoProcessor:
         from pydub import AudioSegment, silence
 
         audio = AudioSegment.from_wav(audio_path)
-        min_silence_len = self.min_silence_ms
         silence_thresh = audio.dBFS - 16
 
         nonsilent = silence.detect_nonsilent(
             audio,
-            min_silence_len=min_silence_len,
+            min_silence_len=self.min_silence_ms,
             silence_thresh=silence_thresh,
             seek_step=10,
         )
@@ -150,36 +148,28 @@ class VideoProcessor:
         return [(s, e) for s, e in segments if e - s >= min_duration]
 
     def _render_video(self, segments: List[Tuple[float, float]], duration: float):
-        segments_file = os.path.join(self.temp_dir, "segments.txt")
-        clip_paths = []
+        filter_v = []
+        filter_a = []
 
         for i, (start, end) in enumerate(segments):
-            clip_path = os.path.join(self.temp_dir, f"clip_{i}.mp4")
-            cmd = [
-                "ffmpeg", "-y",
-                "-i", self.input_path,
-                "-ss", str(start),
-                "-to", str(end),
-                "-c:v", "libx264",
-                "-preset", "ultrafast",
-                "-c:a", "aac",
-                "-avoid_negative_ts", "make_zero",
-                clip_path
-            ]
-            self._run_cmd(cmd)
-            clip_paths.append(clip_path)
+            filter_v.append(f"[0:v]trim={start:.3f}:{end:.3f},setpts=PTS-STARTPTS[v{i}]")
+            filter_a.append(f"[0:a]atrim={start:.3f}:{end:.3f},asetpts=PTS-STARTPTS[a{i}]")
 
-        with open(segments_file, "w") as f:
-            for clip_path in clip_paths:
-                f.write(f"file '{clip_path}'\n")
+        n = len(segments)
+        concat_in = "".join(f"[v{i}][a{i}]" for i in range(n))
+        filter_complex = ";".join(filter_v + filter_a)
+        filter_complex += f";{concat_in}concat=n={n}:v=1:a=1[outv][outa]"
 
-        self.cb(80, f"Concatenando {len(clip_paths)} segmentos...")
+        self.cb(80, f"Concatenando {n} segmentos...")
         cmd = [
             "ffmpeg", "-y",
-            "-f", "concat",
-            "-safe", "0",
-            "-i", segments_file,
-            "-c", "copy",
+            "-i", self.input_path,
+            "-filter_complex", filter_complex,
+            "-map", "[outv]",
+            "-map", "[outa]",
+            "-c:v", "libx264",
+            "-preset", "ultrafast",
+            "-c:a", "aac",
             self.output_path,
         ]
         self._run_cmd(cmd)
