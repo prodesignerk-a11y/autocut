@@ -238,39 +238,27 @@ class VideoProcessor:
     # ─── Video Rendering ─────────────────────────────────────────────────
 
     def _render_video(self, segments: List[Tuple[float, float]], duration: float):
-        segments_file = os.path.join(self.temp_dir, "segments.txt")
+        if not segments:
+            raise ValueError("Nenhum segmento encontrado")
+
+        # Build select filter
+        select_parts = []
+        for start, end in segments:
+            select_parts.append(f"between(t,{start:.4f},{end:.4f})")
         
-        clip_paths = []
-        for i, (start, end) in enumerate(segments):
-            clip_path = os.path.join(self.temp_dir, f"clip_{i}.mp4")
-            cmd = [
-                "ffmpeg", "-y",
-                "-i", self.input_path,
-                "-ss", str(start),
-                "-to", str(end),
-                "-c:v", "libx264",
-                "-c:a", "aac",
-                "-avoid_negative_ts", "make_zero",
-                clip_path
-            ]
-            self._run_cmd(cmd)
-            clip_paths.append(clip_path)
-
-        with open(segments_file, "w") as f:
-            for clip_path in clip_paths:
-                f.write(f"file '{clip_path}'\n")
-
-        self.cb(80, f"Concatenando {len(clip_paths)} segmentos...")
+        select_expr = "+".join(select_parts)
+        
         cmd = [
             "ffmpeg", "-y",
-            "-f", "concat",
-            "-safe", "0",
-            "-i", segments_file,
-            "-c", "copy",
+            "-i", self.input_path,
+            "-vf", f"select='{select_expr}',setpts=N/FRAME_RATE/TB",
+            "-af", f"aselect='{select_expr}',asetpts=N/SR/TB",
+            "-c:v", "libx264",
+            "-c:a", "aac",
             self.output_path,
         ]
+        self.cb(80, "Renderizando vídeo final...")
         self._run_cmd(cmd)
-
     # ─── Helpers ─────────────────────────────────────────────────────────
 
     def _run_cmd(self, cmd: list):
