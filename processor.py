@@ -238,44 +238,25 @@ class VideoProcessor:
     # ─── Video Rendering ─────────────────────────────────────────────────
 
     def _render_video(self, segments: List[Tuple[float, float]], duration: float):
-        """
-        Use FFmpeg complex filter to concatenate segments in one pass.
-        Avoids re-encoding quality loss for video; re-encodes audio for clean joins.
-        """
-        # Build filter_complex for concat
-        n = len(segments)
-
-        # Write segments list file for ffmpeg concat demuxer
-        # But for accurate seeking we use the trim/setpts approach
-        filter_parts = []
+        segments_file = os.path.join(self.temp_dir, "segments.txt")
+        
+        clip_paths = []
         for i, (start, end) in enumerate(segments):
-            filter_parts.append(
-                f"[0:v]trim=start={start:.4f}:end={end:.4f},setpts=PTS-STARTPTS[v{i}];"
-                f"[0:a]atrim=start={start:.4f}:end={end:.4f},asetpts=PTS-STARTPTS[a{i}]"
-            )
+            clip_path = os.path.join(self.temp_dir, f"clip_{i}.mp4")
+            cmd = [
+                "ffmpeg", "-y",
+                "-i", self.input_path,
+                "-ss", str(start),
+                "-to", str(end),
+                "-c:v", "libx264",
+                "-c:a", "aac",
+                "-avoid_negative_ts", "make_zero",
+                clip_path
+            ]
+            self._run_cmd(cmd)
+            clip_paths.append(clip_path)
 
-        concat_v = "".join(f"[v{i}]" for i in range(n))
-        concat_a = "".join(f"[a{i}]" for i in range(n))
-        filter_complex = ";".join(filter_parts)
-        filter_complex += f";{concat_v}concat=n={n}:v=1:a=0[outv];{concat_a}concat=n={n}:v=0:a=1[outa]"
-
-        cmd = [
-            "ffmpeg", "-y",
-            "-i", self.input_path,
-            "-filter_complex", filter_complex,
-            "-map", "[outv]",
-            "-map", "[outa]",
-            "-c:v", "libx264",
-            "-preset", "fast",
-            "-crf", "18",
-            "-c:a", "aac",
-            "-b:a", "192k",
-            "-movflags", "+faststart",
-            self.output_path,
-        ]
-
-        self.cb(80, f"Concatenando {n} segmentos...")
-        self._run_cmd(cmd)
+        with open(segments_file, "w")
 
     # ─── Helpers ─────────────────────────────────────────────────────────
 
