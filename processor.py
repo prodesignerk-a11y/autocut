@@ -46,6 +46,8 @@ class VideoProcessor:
         start = time.time()
 
         # Step 1: Extract audio
+    self.cb(3, "Reduzindo resolução do vídeo...")
+self.input_path = self._downscale_video()
         self.cb(5, "Extraindo áudio do vídeo...")
         audio_path = self._extract_audio()
 
@@ -93,6 +95,23 @@ class VideoProcessor:
         self._cleanup()
         return stats
 
+   # ── Downscale ────────────────────────────────────────────────────
+
+        def _downscale_video(self) -> str:
+            """Reduz resolução para 1080p para economizar memória."""
+            scaled_path = os.path.join(self.temp_dir, "scaled.mp4")
+            cmd = [
+                "ffmpeg", "-y",
+                "-i", self.input_path,
+                "-vf", "scale=1080:-2",
+                "-c:v", "libx264",
+                "-preset", "ultrafast",
+                "-c:a", "aac",
+                scaled_path
+            ]
+            self._run_cmd(cmd)
+            return scaled_path
+            
     # ─── Audio Extraction ────────────────────────────────────────────────
 
     def _extract_audio(self) -> str:
