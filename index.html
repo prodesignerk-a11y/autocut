@@ -1,0 +1,992 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AutoCut — Edição Inteligente de Vídeo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #080a0f;
+    --surface: #0f1218;
+    --surface2: #161b24;
+    --border: #1e2530;
+    --accent: #00e5ff;
+    --accent2: #7c3aed;
+    --accent3: #f59e0b;
+    --text: #e8edf5;
+    --muted: #6b7a92;
+    --danger: #ef4444;
+    --success: #22c55e;
+    --font-head: 'Syne', sans-serif;
+    --font-mono: 'DM Mono', monospace;
+    --radius: 12px;
+    --glow: 0 0 40px rgba(0,229,255,0.12);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-mono);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ── Grid background ── */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0,229,255,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,229,255,0.03) 1px, transparent 1px);
+    background-size: 48px 48px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* ── Noise overlay ── */
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+    opacity: 0.4;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .app {
+    position: relative;
+    z-index: 1;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 48px 24px 80px;
+  }
+
+  /* ── Header ── */
+  .header {
+    text-align: center;
+    margin-bottom: 56px;
+    animation: fadeDown 0.6s ease both;
+  }
+
+  .logo-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    margin-bottom: 12px;
+  }
+
+  .logo-icon {
+    width: 44px;
+    height: 44px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    box-shadow: 0 0 24px rgba(0,229,255,0.3);
+  }
+
+  h1 {
+    font-family: var(--font-head);
+    font-size: clamp(2rem, 5vw, 3.2rem);
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    background: linear-gradient(135deg, #fff 30%, var(--accent) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .tagline {
+    color: var(--muted);
+    font-size: 0.9rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    margin-top: 6px;
+  }
+
+  .badge-row {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 20px;
+    flex-wrap: wrap;
+  }
+
+  .badge {
+    font-size: 0.7rem;
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .badge.cyan { border-color: var(--accent); color: var(--accent); }
+  .badge.purple { border-color: var(--accent2); color: var(--accent2); }
+  .badge.amber { border-color: var(--accent3); color: var(--accent3); }
+
+  /* ── Card ── */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 32px;
+    margin-bottom: 16px;
+    transition: border-color 0.2s;
+  }
+  .card:hover { border-color: rgba(0,229,255,0.2); }
+
+  .card-title {
+    font-family: var(--font-head);
+    font-size: 0.8rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--muted);
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .card-title::before {
+    content: '';
+    display: block;
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 8px var(--accent);
+  }
+
+  /* ── Upload Zone ── */
+  .upload-zone {
+    border: 2px dashed var(--border);
+    border-radius: var(--radius);
+    padding: 48px 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+    overflow: hidden;
+  }
+  .upload-zone:hover,
+  .upload-zone.drag-over {
+    border-color: var(--accent);
+    background: rgba(0,229,255,0.03);
+    box-shadow: var(--glow);
+  }
+  .upload-zone input[type="file"] {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+    width: 100%;
+    height: 100%;
+  }
+
+  .upload-icon {
+    font-size: 3rem;
+    margin-bottom: 16px;
+    opacity: 0.6;
+    display: block;
+    transition: transform 0.2s;
+  }
+  .upload-zone:hover .upload-icon { transform: translateY(-4px); }
+
+  .upload-label {
+    font-family: var(--font-head);
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text);
+    display: block;
+    margin-bottom: 6px;
+  }
+  .upload-hint {
+    font-size: 0.8rem;
+    color: var(--muted);
+  }
+  .upload-hint span {
+    color: var(--accent);
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+
+  .file-info {
+    display: none;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 16px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-top: 16px;
+  }
+  .file-info.visible { display: flex; }
+  .file-info-icon { font-size: 1.5rem; }
+  .file-info-name {
+    font-size: 0.85rem;
+    color: var(--text);
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .file-info-size { font-size: 0.75rem; color: var(--muted); }
+  .file-remove {
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 1.1rem;
+    padding: 4px;
+    border-radius: 4px;
+    transition: color 0.15s;
+  }
+  .file-remove:hover { color: var(--danger); }
+
+  /* ── Cut Mode Selector ── */
+  .mode-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+  }
+
+  .mode-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 12px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.18s;
+    position: relative;
+    overflow: hidden;
+  }
+  .mode-btn:hover { border-color: rgba(0,229,255,0.3); }
+  .mode-btn.active {
+    border-color: var(--accent);
+    background: rgba(0,229,255,0.06);
+    box-shadow: 0 0 20px rgba(0,229,255,0.1);
+  }
+  .mode-btn.active::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  }
+
+  .mode-icon { font-size: 1.4rem; margin-bottom: 6px; }
+  .mode-name {
+    font-family: var(--font-head);
+    font-size: 0.85rem;
+    font-weight: 700;
+    display: block;
+    margin-bottom: 4px;
+    color: var(--text);
+  }
+  .mode-desc { font-size: 0.7rem; color: var(--muted); line-height: 1.4; }
+  .mode-ms {
+    font-size: 0.65rem;
+    color: var(--accent);
+    margin-top: 6px;
+    display: block;
+    font-weight: 500;
+  }
+
+  /* ── Advanced options ── */
+  .toggle-advanced {
+    background: none;
+    border: none;
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    cursor: pointer;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: color 0.15s;
+    margin-top: 16px;
+  }
+  .toggle-advanced:hover { color: var(--accent); }
+
+  .advanced-panel {
+    display: none;
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+  }
+  .advanced-panel.open { display: block; }
+
+  .option-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+    gap: 16px;
+  }
+  .option-row:last-child { border-bottom: none; }
+  .option-label {
+    font-size: 0.82rem;
+    color: var(--text);
+    flex: 1;
+  }
+  .option-hint { font-size: 0.72rem; color: var(--muted); margin-top: 2px; }
+
+  /* Toggle switch */
+  .toggle {
+    position: relative;
+    width: 40px;
+    height: 22px;
+    flex-shrink: 0;
+  }
+  .toggle input { display: none; }
+  .toggle-track {
+    position: absolute;
+    inset: 0;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .toggle input:checked + .toggle-track { background: var(--accent); border-color: var(--accent); }
+  .toggle-track::after {
+    content: '';
+    position: absolute;
+    top: 2px; left: 2px;
+    width: 16px; height: 16px;
+    background: #fff;
+    border-radius: 50%;
+    transition: transform 0.2s;
+  }
+  .toggle input:checked + .toggle-track::after { transform: translateX(18px); }
+
+  /* Range */
+  .range-wrap { display: flex; align-items: center; gap: 10px; }
+  .range-wrap input[type="range"] {
+    -webkit-appearance: none;
+    width: 100px;
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    outline: none;
+    cursor: pointer;
+  }
+  .range-wrap input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px; height: 14px;
+    background: var(--accent);
+    border-radius: 50%;
+    box-shadow: 0 0 6px rgba(0,229,255,0.5);
+  }
+  .range-val { font-size: 0.75rem; color: var(--accent); min-width: 36px; }
+
+  /* ── Process Button ── */
+  .btn-process {
+    width: 100%;
+    padding: 16px 24px;
+    background: linear-gradient(135deg, var(--accent) 0%, #0891b2 100%);
+    color: #000;
+    border: none;
+    border-radius: var(--radius);
+    font-family: var(--font-head);
+    font-size: 1rem;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+  }
+  .btn-process:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 32px rgba(0,229,255,0.35);
+  }
+  .btn-process:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    transform: none;
+  }
+  .btn-process::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+    transform: translateX(-100%);
+    transition: transform 0.5s;
+  }
+  .btn-process:hover:not(:disabled)::before { transform: translateX(100%); }
+
+  /* ── Progress ── */
+  .progress-card { display: none; }
+  .progress-card.visible { display: block; }
+
+  .progress-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+  }
+  .progress-step {
+    font-size: 0.85rem;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .spinner {
+    width: 14px; height: 14px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  .progress-pct {
+    font-size: 0.85rem;
+    color: var(--accent);
+    font-weight: 500;
+  }
+
+  .progress-bar-track {
+    height: 6px;
+    background: var(--surface2);
+    border-radius: 3px;
+    overflow: hidden;
+    margin-bottom: 8px;
+  }
+  .progress-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent2), var(--accent));
+    border-radius: 3px;
+    transition: width 0.4s ease;
+    position: relative;
+  }
+  .progress-bar-fill::after {
+    content: '';
+    position: absolute;
+    right: 0; top: 0;
+    width: 40px; height: 100%;
+    background: rgba(255,255,255,0.4);
+    filter: blur(8px);
+    animation: shimmer 1.5s ease infinite;
+  }
+
+  /* ── Result Card ── */
+  .result-card { display: none; }
+  .result-card.visible { display: block; }
+
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+    margin-bottom: 20px;
+  }
+  @media (min-width: 500px) { .stats-grid { grid-template-columns: repeat(4, 1fr); } }
+
+  .stat-item {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 12px;
+    text-align: center;
+  }
+  .stat-value {
+    font-family: var(--font-head);
+    font-size: 1.4rem;
+    font-weight: 800;
+    color: var(--accent);
+    display: block;
+    margin-bottom: 4px;
+  }
+  .stat-label { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+
+  .waveform-viz {
+    height: 56px;
+    background: var(--surface2);
+    border-radius: 8px;
+    margin-bottom: 16px;
+    overflow: hidden;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    padding: 8px 16px;
+  }
+
+  .btn-download {
+    width: 100%;
+    padding: 14px;
+    background: var(--surface2);
+    border: 1px solid var(--accent);
+    border-radius: var(--radius);
+    color: var(--accent);
+    font-family: var(--font-head);
+    font-size: 0.9rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.18s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    text-decoration: none;
+  }
+  .btn-download:hover {
+    background: rgba(0,229,255,0.08);
+    box-shadow: var(--glow);
+    transform: translateY(-1px);
+  }
+
+  .btn-reset {
+    width: 100%;
+    margin-top: 10px;
+    padding: 12px;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .btn-reset:hover { border-color: var(--muted); color: var(--text); }
+
+  /* ── Error ── */
+  .error-box {
+    background: rgba(239,68,68,0.08);
+    border: 1px solid rgba(239,68,68,0.3);
+    border-radius: 10px;
+    padding: 16px;
+    font-size: 0.85rem;
+    color: #fca5a5;
+    display: none;
+    gap: 10px;
+    align-items: flex-start;
+  }
+  .error-box.visible { display: flex; }
+
+  /* ── Footer ── */
+  .footer {
+    text-align: center;
+    margin-top: 48px;
+    font-size: 0.72rem;
+    color: var(--muted);
+    line-height: 2;
+  }
+  .footer a { color: var(--accent); text-decoration: none; }
+
+  /* ── Animations ── */
+  @keyframes fadeDown {
+    from { opacity: 0; transform: translateY(-16px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes shimmer {
+    0%, 100% { opacity: 0; }
+    50% { opacity: 1; }
+  }
+  @keyframes barPulse {
+    0%, 100% { transform: scaleY(0.4); }
+    50% { transform: scaleY(1); }
+  }
+
+  .card { animation: fadeDown 0.5s ease both; }
+  .card:nth-child(2) { animation-delay: 0.1s; }
+  .card:nth-child(3) { animation-delay: 0.2s; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- Header -->
+  <header class="header">
+    <div class="logo-row">
+      <div class="logo-icon">✂️</div>
+      <h1>AutoCut</h1>
+    </div>
+    <p class="tagline">Edição inteligente de vídeo com IA</p>
+    <div class="badge-row">
+      <span class="badge cyan">Silero VAD</span>
+      <span class="badge purple">Whisper AI</span>
+      <span class="badge amber">FFmpeg</span>
+      <span class="badge">Reels · Shorts · TikTok</span>
+    </div>
+  </header>
+
+  <!-- Upload Card -->
+  <div class="card" id="uploadCard">
+    <div class="card-title">01 — Upload do Vídeo</div>
+
+    <div class="upload-zone" id="uploadZone">
+      <input type="file" id="fileInput" accept=".mp4,.mov,.mkv,.webm" />
+      <span class="upload-icon">📹</span>
+      <span class="upload-label">Arraste seu vídeo aqui</span>
+      <p class="upload-hint">ou <span>clique para selecionar</span> — MP4, MOV, MKV</p>
+    </div>
+
+    <div class="file-info" id="fileInfo">
+      <span class="file-info-icon">🎬</span>
+      <span class="file-info-name" id="fileName">—</span>
+      <span class="file-info-size" id="fileSize">—</span>
+      <button class="file-remove" id="fileRemove" title="Remover">✕</button>
+    </div>
+  </div>
+
+  <!-- Settings Card -->
+  <div class="card">
+    <div class="card-title">02 — Modo de Corte</div>
+
+    <div class="mode-grid">
+      <button class="mode-btn" data-mode="light" onclick="selectMode('light', this)">
+        <div class="mode-icon">🌿</div>
+        <span class="mode-name">Leve</span>
+        <span class="mode-desc">Mantém respirações naturais</span>
+        <span class="mode-ms">&gt;700 ms removidos</span>
+      </button>
+      <button class="mode-btn active" data-mode="medium" onclick="selectMode('medium', this)">
+        <div class="mode-icon">⚡</div>
+        <span class="mode-name">Médio</span>
+        <span class="mode-desc">Ritmo natural e dinâmico</span>
+        <span class="mode-ms">&gt;400 ms removidos</span>
+      </button>
+      <button class="mode-btn" data-mode="aggressive" onclick="selectMode('aggressive', this)">
+        <div class="mode-icon">🔥</div>
+        <span class="mode-name">Agressivo</span>
+        <span class="mode-desc">Ultra rápido para reels</span>
+        <span class="mode-ms">&gt;200 ms removidos</span>
+      </button>
+    </div>
+
+    <button class="toggle-advanced" id="toggleAdv" onclick="toggleAdvanced()">
+      <span id="advArrow">▶</span> Opções avançadas
+    </button>
+
+    <div class="advanced-panel" id="advPanel">
+      <div class="option-row">
+        <div>
+          <div class="option-label">Remover ruído de fundo</div>
+          <div class="option-hint">Detecta e corta vozes paralelas e ruídos</div>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="optBgNoise" checked />
+          <span class="toggle-track"></span>
+        </label>
+      </div>
+
+      <div class="option-row">
+        <div>
+          <div class="option-label">Padding de contexto</div>
+          <div class="option-hint">Margem em ms antes/depois de cada fala</div>
+        </div>
+        <div class="range-wrap">
+          <input type="range" id="optPadding" min="0" max="300" step="25" value="50"
+            oninput="document.getElementById('paddingVal').textContent=this.value+'ms'" />
+          <span class="range-val" id="paddingVal">50ms</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Process Button -->
+  <div class="card" style="padding:0;border:none;background:none;">
+    <button class="btn-process" id="btnProcess" disabled onclick="startProcessing()">
+      <span>🚀</span> Processar Vídeo
+    </button>
+  </div>
+
+  <!-- Error Box -->
+  <div class="error-box" id="errorBox">
+    <span>⚠️</span>
+    <span id="errorMsg">Erro desconhecido.</span>
+  </div>
+
+  <!-- Progress Card -->
+  <div class="card progress-card" id="progressCard">
+    <div class="card-title">03 — Processando</div>
+    <div class="progress-header">
+      <div class="progress-step">
+        <div class="spinner"></div>
+        <span id="stepText">Iniciando...</span>
+      </div>
+      <span class="progress-pct" id="progressPct">0%</span>
+    </div>
+    <div class="progress-bar-track">
+      <div class="progress-bar-fill" id="progressFill" style="width:0%"></div>
+    </div>
+    <div style="font-size:0.72rem;color:var(--muted);margin-top:6px">
+      Job ID: <span id="jobIdDisplay" style="color:var(--accent)">—</span>
+    </div>
+  </div>
+
+  <!-- Result Card -->
+  <div class="card result-card" id="resultCard">
+    <div class="card-title">04 — Vídeo Pronto</div>
+
+    <div class="stats-grid">
+      <div class="stat-item">
+        <span class="stat-value" id="statOrig">—</span>
+        <span class="stat-label">Original</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-value" id="statEdit">—</span>
+        <span class="stat-label">Editado</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-value" id="statRemoved">—</span>
+        <span class="stat-label">Removido</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-value" id="statReduction" style="color:var(--success)">—</span>
+        <span class="stat-label">Redução</span>
+      </div>
+    </div>
+
+    <div class="waveform-viz" id="waveViz"></div>
+
+    <a class="btn-download" id="btnDownload" href="#" download>
+      ⬇ Baixar Vídeo Editado (MP4)
+    </a>
+    <button class="btn-reset" onclick="reset()">↩ Processar outro vídeo</button>
+  </div>
+
+  <footer class="footer">
+    AutoCut · Powered by Silero VAD + OpenAI Whisper + FFmpeg<br/>
+    <a href="https://github.com" target="_blank">Código no GitHub</a> ·
+    Backend em localhost:8000
+  </footer>
+</div>
+
+<script>
+const API = 'http://localhost:8000';
+let jobId = null;
+let pollInterval = null;
+let selectedMode = 'medium';
+let uploadedFile = null;
+
+// ── File Upload ──────────────────────────────────────────────────────────
+const fileInput = document.getElementById('fileInput');
+const uploadZone = document.getElementById('uploadZone');
+const fileInfo = document.getElementById('fileInfo');
+const btnProcess = document.getElementById('btnProcess');
+
+fileInput.addEventListener('change', () => handleFile(fileInput.files[0]));
+
+uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('drag-over'); });
+uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag-over'));
+uploadZone.addEventListener('drop', e => {
+  e.preventDefault();
+  uploadZone.classList.remove('drag-over');
+  const f = e.dataTransfer.files[0];
+  if (f) handleFile(f);
+});
+
+document.getElementById('fileRemove').addEventListener('click', e => {
+  e.stopPropagation();
+  clearFile();
+});
+
+function handleFile(file) {
+  if (!file) return;
+  const allowed = ['video/mp4', 'video/quicktime', 'video/x-matroska', 'video/webm', ''];
+  uploadedFile = file;
+  document.getElementById('fileName').textContent = file.name;
+  document.getElementById('fileSize').textContent = formatBytes(file.size);
+  fileInfo.classList.add('visible');
+  btnProcess.disabled = false;
+}
+
+function clearFile() {
+  uploadedFile = null;
+  fileInput.value = '';
+  fileInfo.classList.remove('visible');
+  btnProcess.disabled = true;
+}
+
+function formatBytes(bytes) {
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+// ── Mode Selection ───────────────────────────────────────────────────────
+function selectMode(mode, el) {
+  selectedMode = mode;
+  document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+}
+
+// ── Advanced Panel ───────────────────────────────────────────────────────
+function toggleAdvanced() {
+  const panel = document.getElementById('advPanel');
+  const arrow = document.getElementById('advArrow');
+  const open = panel.classList.toggle('open');
+  arrow.textContent = open ? '▼' : '▶';
+}
+
+// ── Processing ───────────────────────────────────────────────────────────
+async function startProcessing() {
+  if (!uploadedFile) return;
+
+  showError(null);
+  btnProcess.disabled = true;
+
+  // 1. Upload
+  document.getElementById('progressCard').classList.add('visible');
+  updateProgress(5, 'Enviando vídeo...');
+
+  const formData = new FormData();
+  formData.append('file', uploadedFile);
+
+  let uploadRes;
+  try {
+    const res = await fetch(`${API}/api/upload`, { method: 'POST', body: formData });
+    if (!res.ok) throw new Error(await res.text());
+    uploadRes = await res.json();
+    jobId = uploadRes.job_id;
+    document.getElementById('jobIdDisplay').textContent = jobId.slice(0, 8) + '...';
+  } catch (e) {
+    showError('Falha no upload: ' + e.message);
+    btnProcess.disabled = false;
+    return;
+  }
+
+  // 2. Process
+  const padding = document.getElementById('optPadding').value;
+  const bgNoise = document.getElementById('optBgNoise').checked;
+
+  try {
+    const res = await fetch(
+      `${API}/api/process/${jobId}?cut_mode=${selectedMode}&remove_background_noise=${bgNoise}&padding_ms=${padding}`,
+      { method: 'POST' }
+    );
+    if (!res.ok) throw new Error(await res.text());
+  } catch (e) {
+    showError('Falha ao iniciar processamento: ' + e.message);
+    btnProcess.disabled = false;
+    return;
+  }
+
+  // 3. Poll status
+  pollInterval = setInterval(pollStatus, 1200);
+}
+
+async function pollStatus() {
+  try {
+    const res = await fetch(`${API}/api/status/${jobId}`);
+    const data = await res.json();
+
+    updateProgress(data.progress, data.step);
+
+    if (data.status === 'done') {
+      clearInterval(pollInterval);
+      showResult(data.stats);
+    } else if (data.status === 'error') {
+      clearInterval(pollInterval);
+      showError(data.error || 'Erro no processamento.');
+      btnProcess.disabled = false;
+    }
+  } catch (e) {
+    console.error('Poll error:', e);
+  }
+}
+
+function updateProgress(pct, step) {
+  document.getElementById('progressFill').style.width = pct + '%';
+  document.getElementById('progressPct').textContent = pct + '%';
+  document.getElementById('stepText').textContent = step;
+}
+
+function showResult(stats) {
+  document.getElementById('progressCard').querySelector('.spinner').style.display = 'none';
+  document.getElementById('stepText').textContent = '✅ Processamento concluído!';
+
+  // Populate stats
+  document.getElementById('statOrig').textContent = fmtDur(stats.original_duration);
+  document.getElementById('statEdit').textContent = fmtDur(stats.edited_duration);
+  document.getElementById('statRemoved').textContent = fmtDur(stats.removed_duration);
+  document.getElementById('statReduction').textContent = stats.reduction_pct + '%';
+
+  // Download link
+  document.getElementById('btnDownload').href = `${API}/api/download/${jobId}`;
+
+  // Waveform viz
+  renderWaveViz(stats);
+
+  document.getElementById('resultCard').classList.add('visible');
+}
+
+function fmtDur(secs) {
+  if (secs < 60) return secs.toFixed(1) + 's';
+  const m = Math.floor(secs / 60);
+  const s = (secs % 60).toFixed(0).padStart(2, '0');
+  return `${m}:${s}`;
+}
+
+function renderWaveViz(stats) {
+  const viz = document.getElementById('waveViz');
+  viz.innerHTML = '';
+  const bars = 60;
+  const keptRatio = stats.edited_duration / stats.original_duration;
+
+  for (let i = 0; i < bars; i++) {
+    const div = document.createElement('div');
+    const ratio = i / bars;
+    const isKept = ratio < keptRatio;
+    const h = 10 + Math.random() * 30;
+    div.style.cssText = `
+      flex:1; height:${h}px; min-width:2px; border-radius:2px;
+      background:${isKept ? 'var(--accent)' : 'var(--border)'};
+      opacity:${isKept ? 0.7 + Math.random() * 0.3 : 0.3};
+      animation: barPulse ${1 + Math.random()}s ease ${Math.random()}s infinite;
+    `;
+    viz.appendChild(div);
+  }
+  const label = document.createElement('div');
+  label.style.cssText = 'position:absolute;font-size:0.68rem;color:var(--muted);right:12px;bottom:8px;';
+  label.textContent = `${stats.segments_kept} segmentos · ${stats.processing_time}s processamento`;
+  viz.appendChild(label);
+}
+
+function showError(msg) {
+  const box = document.getElementById('errorBox');
+  if (!msg) { box.classList.remove('visible'); return; }
+  document.getElementById('errorMsg').textContent = msg;
+  box.classList.add('visible');
+}
+
+function reset() {
+  clearFile();
+  jobId = null;
+  if (pollInterval) clearInterval(pollInterval);
+  document.getElementById('progressCard').classList.remove('visible');
+  document.getElementById('resultCard').classList.remove('visible');
+  document.getElementById('progressFill').style.width = '0%';
+  document.getElementById('progressCard').querySelector('.spinner').style.display = '';
+  showError(null);
+}
+</script>
+</body>
+</html>
